@@ -24,7 +24,7 @@ async def cmd_start(message: types.Message):
     username = message.from_user.username or message.from_user.first_name
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛒 Сделать заказ", web_app=WebAppInfo(url="https://681371ff411be5ae3bc60d8e--admirable-trifle-ebfa2f.netlify.app/"))]
+            [KeyboardButton(text="🛒 Сделать заказ", web_app=WebAppInfo(url="https://olimpshop49.netlify.app/"))]
         ],
         resize_keyboard=True
     )
