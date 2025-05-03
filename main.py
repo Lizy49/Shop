@@ -10,7 +10,7 @@ from aiogram.filters import Command
 from aiogram import F
 
 API_TOKEN = '7592882454:AAEbeRBkrtGNK41HcyVOVZ8PYIHLuYoGD1g'
-MANAGER_CHAT_ID = 181248062
+MANAGER_CHAT_ID = 1812480625
 
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
@@ -37,22 +37,29 @@ async def cmd_start(message: types.Message):
 async def handle_webapp_data(message: types.Message):
     try:
         data = json.loads(message.web_app_data.data)
+        items = data.get('items', [])
+
+        if not items:
+            await message.answer("❗ Не удалось получить товары из заказа.")
+            return
+
         items_text = "\n".join(
-            f"▫ {i['name']} ({i.get('flavor', 'Стандарт')}) x{i['qty']} — {i['price'] * i['qty']}₽"
-            for i in data['items']
+            f"▫ {item['name']} | Вкус: *{item.get('flavor', 'не указан')}* | Кол-во: {item['qty']} | Сумма: {item['price'] * item['qty']}₽"
+            for item in items
         )
-        address = data['address']
+
+        address = data.get('address', 'Не указан')
         district = data.get('district', 'Не указан')
-        total = data['total']
+        total = data.get('total', 0)
         username = message.from_user.username or message.from_user.first_name
 
         # Сообщение клиенту
         await message.answer(
             f"✅ *Ваш заказ принят!*\n\n"
-            f"{items_text}\n"
+            f"{items_text}\n\n"
             f"📍 Район: {district}\n"
             f"🏠 Адрес: {address}\n"
-            f"💰 Итого: {total} ₽\n\n"
+            f"💰 Итого: *{total} ₽*\n\n"
             f"Скоро с вами свяжется менеджер!"
         )
 
@@ -61,10 +68,10 @@ async def handle_webapp_data(message: types.Message):
             chat_id=MANAGER_CHAT_ID,
             text=(
                 f"📦 *Новый заказ!*\n\n"
-                f"{items_text}\n"
+                f"{items_text}\n\n"
                 f"📍 Район: {district}\n"
                 f"🏠 Адрес: {address}\n"
-                f"💰 Сумма: {total} ₽\n"
+                f"💰 Сумма: *{total} ₽*\n"
                 f"👤 От: @{username}"
             )
         )
