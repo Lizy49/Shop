@@ -11,7 +11,7 @@ from aiogram.filters import Command
 from aiogram import F
 
 API_TOKEN = '7592882454:AAEbeRBkrtGNK41HcyVOVZ8PYIHLuYoGD1g'
-MANAGER_CHAT_ID = 1812480625
+MANAGER_CHAT_ID = -1002378282152
 
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
