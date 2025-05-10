@@ -132,7 +132,9 @@ def get_main_keyboard():
 
 def calculate_discount(referrals_count: int) -> int:
     """Расчет скидки по количеству рефералов"""
-    if referrals_count >= 40:
+    if referrals_count >= 50:
+        return 50
+    elif referrals_count >= 40:
         return 45
     elif referrals_count >= 35:
         return 40
@@ -196,7 +198,9 @@ async def cmd_start(message: types.Message, command: CommandObject = None):
         f"🔥 Добро пожаловать в OlimpShop49, {username}!\n\n"
         f"💎 Твоя реферальная ссылка: `https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`\n"
         f"💰 Текущая скидка: {discount}% (приведено {ref_count} друзей)\n\n"
-        "Приводи друзей - получай скидки до 45%!",
+        "Приводи друзей - получай скидки до 50%!"
+        f"А также заказывайте у нас жижи, одноразки, подики, испрители\n"
+         "Соревнуйтесь, ведь кто больше приведет, у того большая скидка. Удачи!" ,
         reply_markup=get_main_keyboard()
     )
 
