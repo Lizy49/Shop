@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 # Настройки
-API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0 '
+API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0'
 MANAGER_CHAT_ID = -1002378282152    # Ваш ID чата менеджера
 DATABASE_FILE = 'database.db'  # Файл базы данных
 
