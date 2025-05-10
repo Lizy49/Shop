@@ -1,7 +1,7 @@
 import json
 import logging
 import asyncio
-import datetime
+import sqlite3
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -9,102 +9,114 @@ from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandObject
 from aiogram import F
-import asyncpg
+from datetime import datetime
 from typing import List, Dict, Optional
 
 # Настройки
-API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0'
-MANAGER_CHAT_ID = -1002378282152
-DATABASE_URL = "postgresql://user:password@localhost/dbname"  # Замени на свои, кретин
+API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0 '
+MANAGER_CHAT_ID = -1002378282152    # Ваш ID чата менеджера
+DATABASE_FILE = 'database.db'  # Файл базы данных
 
 # Инициализация бота
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
 
-# Класс для работы с базой
 class Database:
     def __init__(self):
-        self.pool: Optional[asyncpg.Pool] = None
+        self.conn = sqlite3.connect(DATABASE_FILE, check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        self._init_db()
 
-    async def connect(self):
-        self.pool = await asyncpg.create_pool(DATABASE_URL)
-        await self._create_tables()
+    def _init_db(self):
+        """Инициализация таблиц в базе данных"""
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                invited_by INTEGER,
+                registered_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inviter_id INTEGER,
+                referral_id INTEGER UNIQUE,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                activated BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (inviter_id) REFERENCES users(user_id),
+                FOREIGN KEY (referral_id) REFERENCES users(user_id)
+            )
+        ''')
+        self.conn.commit()
 
-    async def _create_tables(self):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    username TEXT,
-                    invited_by BIGINT,
-                    registered_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS referrals (
-                    id SERIAL PRIMARY KEY,
-                    inviter_id BIGINT REFERENCES users(user_id),
-                    referral_id BIGINT UNIQUE REFERENCES users(user_id),
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    activated BOOLEAN DEFAULT FALSE
-                )
-            """)
+    def add_user(self, user_id: int, username: str, invited_by: Optional[int] = None):
+        """Добавление нового пользователя"""
+        self.cursor.execute('''
+            INSERT OR REPLACE INTO users (user_id, username, invited_by)
+            VALUES (?, ?, ?)
+        ''', (user_id, username, invited_by))
+        self.conn.commit()
 
-    async def add_user(self, user_id: int, username: str, invited_by: Optional[int] = None):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO users (user_id, username, invited_by)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id) DO UPDATE SET username = $2
-            """, user_id, username, invited_by)
+    def add_referral(self, inviter_id: int, referral_id: int):
+        """Добавление реферала"""
+        try:
+            self.cursor.execute('''
+                INSERT OR IGNORE INTO referrals (inviter_id, referral_id)
+                VALUES (?, ?)
+            ''', (inviter_id, referral_id))
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            pass
 
-    async def add_referral(self, inviter_id: int, referral_id: int):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO referrals (inviter_id, referral_id)
-                VALUES ($1, $2)
-                ON CONFLICT (referral_id) DO NOTHING
-            """, inviter_id, referral_id)
+    def activate_referral(self, referral_id: int):
+        """Активация реферала (после заказа)"""
+        self.cursor.execute('''
+            UPDATE referrals SET activated = TRUE
+            WHERE referral_id = ?
+        ''', (referral_id,))
+        self.conn.commit()
 
-    async def activate_referral(self, referral_id: int):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE referrals SET activated = TRUE
-                WHERE referral_id = $1
-            """, referral_id)
+    def get_user_referrals(self, user_id: int) -> List[Dict]:
+        """Получение списка рефералов пользователя"""
+        self.cursor.execute('''
+            SELECT r.referral_id, u.username, r.created_at, r.activated
+            FROM referrals r
+            JOIN users u ON r.referral_id = u.user_id
+            WHERE r.inviter_id = ?
+            ORDER BY r.created_at DESC
+        ''', (user_id,))
+        columns = [col[0] for col in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
 
-    async def get_user_referrals(self, user_id: int) -> List[Dict]:
-        async with self.pool.acquire() as conn:
-            return await conn.fetch("""
-                SELECT r.referral_id, u.username, r.created_at, r.activated
-                FROM referrals r
-                JOIN users u ON r.referral_id = u.user_id
-                WHERE r.inviter_id = $1
-                ORDER BY r.created_at DESC
-            """, user_id)
+    def get_active_referrals_count(self, user_id: int) -> int:
+        """Получение количества активных рефералов"""
+        self.cursor.execute('''
+            SELECT COUNT(*) FROM referrals
+            WHERE inviter_id = ? AND activated = TRUE
+        ''', (user_id,))
+        return self.cursor.fetchone()[0]
 
-    async def get_active_referrals_count(self, user_id: int) -> int:
-        async with self.pool.acquire() as conn:
-            return await conn.fetchval("""
-                SELECT COUNT(*) FROM referrals
-                WHERE inviter_id = $1 AND activated = TRUE
-            """, user_id)
+    def get_top_referrals(self, limit: int = 10) -> List[Dict]:
+        """Получение топа рефералов"""
+        self.cursor.execute('''
+            SELECT u.user_id, u.username, COUNT(r.id) as referrals_count
+            FROM users u
+            JOIN referrals r ON u.user_id = r.inviter_id
+            WHERE r.activated = TRUE
+            GROUP BY u.user_id, u.username
+            ORDER BY referrals_count DESC
+            LIMIT ?
+        ''', (limit,))
+        columns = [col[0] for col in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
 
-    async def get_top_referrals(self, limit: int = 10) -> List[Dict]:
-        async with self.pool.acquire() as conn:
-            return await conn.fetch("""
-                SELECT u.user_id, u.username, COUNT(r.id) as referrals_count
-                FROM users u
-                JOIN referrals r ON u.user_id = r.inviter_id
-                WHERE r.activated = TRUE
-                GROUP BY u.user_id, u.username
-                ORDER BY referrals_count DESC
-                LIMIT $1
-            """, limit)
-
+# Инициализация базы данных
 db = Database()
 
 def get_main_keyboard():
+    """Клавиатура главного меню"""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🚀 Оформить заказ", web_app=WebAppInfo(url="https://olimpshop49.netlify.app/"))],
@@ -119,7 +131,7 @@ def get_main_keyboard():
     )
 
 def calculate_discount(referrals_count: int) -> int:
-    """Вычисляет скидку по твоей тупой схеме"""
+    """Расчет скидки по количеству рефералов"""
     if referrals_count >= 40:
         return 45
     elif referrals_count >= 35:
@@ -142,6 +154,7 @@ def calculate_discount(referrals_count: int) -> int:
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, command: CommandObject = None):
+    """Обработчик команды /start"""
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     
@@ -149,48 +162,50 @@ async def cmd_start(message: types.Message, command: CommandObject = None):
     if command and command.args and command.args.startswith("ref="):
         try:
             inviter_id = int(command.args.split("=")[1])
-            if inviter_id != user_id:  # Нельзя приглашать себя, дебил
-                await db.add_user(inviter_id, "unknown")  # На случай если приглашающий ещё не в базе
-                await db.add_user(user_id, username, inviter_id)
-                await db.add_referral(inviter_id, user_id)
+            if inviter_id != user_id:  # Защита от самоприглашения
+                db.add_user(inviter_id, "unknown")
+                db.add_user(user_id, username, inviter_id)
+                db.add_referral(inviter_id, user_id)
                 
-                # Уведомляем менеджера о новом реферале
-                inviter_username = (await db.pool.fetchval(
-                    "SELECT username FROM users WHERE user_id = $1", inviter_id
-                )) or "unknown"
+                # Уведомление менеджера
+                inviter = db.cursor.execute(
+                    "SELECT username FROM users WHERE user_id = ?", (inviter_id,)
+                ).fetchone()
+                inviter_username = inviter[0] if inviter else "unknown"
                 
                 await bot.send_message(
                     chat_id=MANAGER_CHAT_ID,
-                    text=f"🆕 *Новый реферал!*\n\n"
+                    text=f"🆕 Новый реферал!\n\n"
                          f"👤 Пригласил: @{inviter_username} (ID: {inviter_id})\n"
                          f"👥 Приведён: @{username} (ID: {user_id})\n"
-                         f"📅 Дата: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}"
+                         f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
                 )
             else:
-                await db.add_user(user_id, username)
+                db.add_user(user_id, username)
         except (ValueError, IndexError, Exception) as e:
             logging.error(f"Ошибка обработки реферальной ссылки: {e}")
-            await db.add_user(user_id, username)
+            db.add_user(user_id, username)
     else:
-        await db.add_user(user_id, username)
+        db.add_user(user_id, username)
     
-    # Получаем количество активных рефералов
-    ref_count = await db.get_active_referrals_count(user_id)
+    # Получение скидки
+    ref_count = db.get_active_referrals_count(user_id)
     discount = calculate_discount(ref_count)
     
     await message.answer(
-        f"🔥 *Добро пожаловать в OlimpShop49, {username}!* 🔥\n\n"
+        f"🔥 Добро пожаловать в OlimpShop49, {username}!\n\n"
         f"💎 Твоя реферальная ссылка: `https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`\n"
-        f"💰 Текущая скидка: *{discount}%* (приведено {ref_count} друзей)\n\n"
+        f"💰 Текущая скидка: {discount}% (приведено {ref_count} друзей)\n\n"
         "Приводи друзей - получай скидки до 45%!",
         reply_markup=get_main_keyboard()
     )
 
 @dp.message(F.text == "🏆 Топ рефералов")
 async def show_top_referrals(message: types.Message):
-    top = await db.get_top_referrals()
+    """Показ топа рефералов"""
+    top = db.get_top_referrals()
     if not top:
-        await message.answer("🏆 Пока никто никого не привел. Ты можешь быть первым, лузер!")
+        await message.answer("🏆 Пока никто никого не привел. Ты можешь быть первым!")
         return
     
     top_text = "\n".join(
@@ -199,27 +214,27 @@ async def show_top_referrals(message: types.Message):
     )
     
     await message.answer(
-        f"🏆 *ТОП РЕФЕРАЛОВ* 🏆\n\n"
-        f"{top_text}\n\n"
+        f"🏆 ТОП РЕФЕРАЛОВ 🏆\n\n{top_text}\n\n"
         "Приводи друзей и поднимайся в топе!",
         reply_markup=get_main_keyboard()
     )
 
 @dp.message(F.text == "💎 Моя скидка")
 async def show_my_discount(message: types.Message):
+    """Показ скидки пользователя"""
     user_id = message.from_user.id
-    ref_count = await db.get_active_referrals_count(user_id)
+    ref_count = db.get_active_referrals_count(user_id)
     discount = calculate_discount(ref_count)
     
-    referrals = await db.get_user_referrals(user_id)
+    referrals = db.get_user_referrals(user_id)
     refs_text = "\n".join(
-        f"▫️ {ref['created_at'].strftime('%d.%m.%Y')} — @{ref['username']} "
+        f"▫️ {datetime.strptime(ref['created_at'], '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y')} — @{ref['username']} "
         f"({'✅' if ref['activated'] else '❌'})"
         for ref in referrals
     ) if referrals else "Пока никого не привел"
     
     await message.answer(
-        f"💎 *Твоя скидка: {discount}%* (приведено {ref_count} друзей)\n\n"
+        f"💎 Твоя скидка: {discount}% (приведено {ref_count} друзей)\n\n"
         f"📊 Твои рефералы:\n{refs_text}\n\n"
         f"🔗 Твоя реф-ссылка: `https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`",
         reply_markup=get_main_keyboard()
@@ -312,19 +327,10 @@ async def working_hours(message: types.Message):
         reply_markup=get_main_keyboard()
     )
 
-async def on_startup():
-    await db.connect()
-    logging.info("Бот запущен и подключен к базе данных")
-
-async def on_shutdown():
-    await db.pool.close()
-    logging.info("Бот остановлен, соединение с базой закрыто")
-
 async def main():
-    await on_startup()
+    """Запуск бота"""
+    logging.basicConfig(level=logging.INFO)
     await dp.start_polling(bot)
-    await on_shutdown()
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())

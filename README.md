@@ -103,7 +103,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
 ```  
-
+#  7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0          -1002378282152  
 ```python
 import json
 import logging
@@ -347,13 +347,4 @@ async def show_my_discount(message: types.Message):
         reply_markup=get_main_keyboard()
     )
 
-# Остальные обработчики (контакты, режим работы) остаются без изменений
-
-async def main():
-    """Запуск бота"""
-    logging.basicConfig(level=logging.INFO)
-    await dp.start_polling(bot)
-
-if __name__ == '__main__':
-    asyncio.run(main())
-```
+# Остальные обработчики (контакты, режим работы) ост
