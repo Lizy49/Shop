@@ -6,7 +6,14 @@ import sqlite3
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    WebAppInfo, 
+    ReplyKeyboardMarkup, 
+    KeyboardButton, 
+    InlineKeyboardMarkup, 
+    InlineKeyboardButton,
+    ReplyKeyboardRemove
+)
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandObject
 from aiogram import F
@@ -17,7 +24,7 @@ import pytz
 # Настройки
 API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0'
 MANAGER_CHAT_ID = -1002378282152
-CHANNEL_USERNAME = '@olimpmagadan'  # Ваш канал
+CHANNEL_USERNAME = '@olimpmagadan'
 DATABASE_FILE = 'database.db'
 MAGADAN_TIMEZONE = pytz.timezone('Asia/Magadan')
 
@@ -40,7 +47,8 @@ class Database:
                 full_name TEXT,
                 invited_by INTEGER,
                 registered_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                joined_channel BOOLEAN DEFAULT FALSE
+                joined_channel BOOLEAN DEFAULT FALSE,
+                discount INTEGER DEFAULT 0
             )
         ''')
         
@@ -53,6 +61,17 @@ class Database:
                 activated BOOLEAN DEFAULT FALSE,
                 FOREIGN KEY (inviter_id) REFERENCES users(user_id),
                 FOREIGN KEY (referral_id) REFERENCES users(user_id)
+            )
+        ''')
+        
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                data TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'new',
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         ''')
         self.conn.commit()
@@ -132,10 +151,34 @@ class Database:
     def get_user_info(self, user_id: int) -> Dict:
         """Получение информации о пользователе"""
         self.cursor.execute('''
-            SELECT username, full_name, joined_channel FROM users WHERE user_id = ?
+            SELECT username, full_name, joined_channel, discount FROM users WHERE user_id = ?
         ''', (user_id,))
         row = self.cursor.fetchone()
-        return {'username': row[0], 'full_name': row[1], 'joined_channel': row[2]} if row else None
+        if row:
+            return {
+                'username': row[0],
+                'full_name': row[1],
+                'joined_channel': row[2],
+                'discount': row[3]
+            }
+        return None
+
+    def add_order(self, user_id: int, data: str):
+        """Добавление заказа"""
+        self.cursor.execute('''
+            INSERT INTO orders (user_id, data)
+            VALUES (?, ?)
+        ''', (user_id, data))
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def update_user_discount(self, user_id: int, discount: int):
+        """Обновление скидки пользователя"""
+        self.cursor.execute('''
+            UPDATE users SET discount = ?
+            WHERE user_id = ?
+        ''', (discount, user_id))
+        self.conn.commit()
 
 # Инициализация базы данных
 db = Database()
@@ -160,6 +203,17 @@ def get_channel_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Вступить в канал", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")]
+        ]
+    )
+
+def get_order_keyboard(order_id: int):
+    """Кнопки для обработки заказа"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_{order_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{order_id}")
+            ]
         ]
     )
 
@@ -254,9 +308,10 @@ async def cmd_start(message: types.Message, command: CommandObject = None):
         if user_info and user_info.get('invited_by'):
             db.activate_referral(user_id)
     
-    # Получение скидки
+    # Обновляем скидку
     ref_count = db.get_active_referrals_count(user_id)
     discount = calculate_discount(ref_count)
+    db.update_user_discount(user_id, discount)
     
     if not is_subscribed:
         await message.answer(
@@ -352,6 +407,125 @@ async def show_my_discount(message: types.Message):
             reply_markup=get_main_keyboard()
         )
 
+@dp.message(F.text == "📞 Контакты")
+async def show_contacts(message: types.Message):
+    """Показ контактов"""
+    await message.answer(
+        "📞 *Контакты OlimpShop49*\n\n"
+        "📍 Магадан, ул. Ленина, 49\n"
+        "☎️ Телефон: +7 (914) 123-45-67\n"
+        "🕒 Режим работы: 10:00 - 22:00 без выходных\n\n"
+        "По всем вопросам пишите в личные сообщения",
+        reply_markup=get_main_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+@dp.message(F.text == "🕒 Режим работы")
+async def show_schedule(message: types.Message):
+    """Показ режима работы"""
+    await message.answer(
+        "🕒 *Режим работы OlimpShop49*\n\n"
+        "Понедельник - Пятница: 10:00 - 22:00\n"
+        "Суббота - Воскресенье: 11:00 - 20:00\n\n"
+        "Без перерывов и выходных!",
+        reply_markup=get_main_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+@dp.message(F.web_app_data)
+async def handle_web_app_data(message: types.Message):
+    """Обработка данных из WebApp"""
+    try:
+        user_id = message.from_user.id
+        data = json.loads(message.web_app_data.data)
+        
+        # Добавляем заказ в базу
+        order_id = db.add_order(user_id, json.dumps(data, ensure_ascii=False))
+        
+        # Получаем информацию о пользователе
+        user_info = db.get_user_info(user_id)
+        discount = user_info['discount'] if user_info else 0
+        
+        # Формируем сообщение для менеджера
+        order_text = (
+            f"🆕 *Новый заказ #`{order_id}`*\n\n"
+            f"👤 *Клиент:* @{message.from_user.username or message.from_user.full_name} (ID: `{user_id}`)\n"
+            f"💎 *Скидка:* {discount}%\n"
+            f"📅 *Дата:* {get_magadan_time()} (МСК+8)\n\n"
+            f"📦 *Состав заказа:*\n"
+        )
+        
+        # Добавляем товары из заказа
+        for item in data.get('items', []):
+            order_text += f"- {item.get('name', 'Неизвестный товар')} x{item.get('quantity', 1)} - {item.get('price', 0)}₽\n"
+        
+        order_text += f"\n💵 *Итого:* {data.get('total', 0)}₽"
+        if discount > 0:
+            discounted_total = data.get('total', 0) * (100 - discount) / 100
+            order_text += f" (со скидкой {discount}%: {discounted_total:.2f}₽)"
+        
+        order_text += f"\n\n📍 *Адрес доставки:* {data.get('address', 'Не указан')}"
+        order_text += f"\n📞 *Телефон:* {data.get('phone', 'Не указан')}"
+        order_text += f"\n💬 *Комментарий:* {data.get('comment', 'Нет комментария')}"
+        
+        # Отправляем менеджеру
+        await bot.send_message(
+            chat_id=MANAGER_CHAT_ID,
+            text=order_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_order_keyboard(order_id)
+        )
+        
+        # Подтверждение пользователю
+        await message.answer(
+            "✅ *Ваш заказ принят!*\n\n"
+            "Спасибо за покупку в OlimpShop49!\n"
+            "Менеджер свяжется с вами в ближайшее время для подтверждения заказа.",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки заказа: {e}")
+        await message.answer(
+            "⚠️ Произошла ошибка при обработке вашего заказа. Пожалуйста, попробуйте позже.",
+            reply_markup=get_main_keyboard()
+        )
+
+@dp.callback_query(F.data.startswith("accept_"))
+async def accept_order(callback: types.CallbackQuery):
+    """Обработка принятия заказа"""
+    try:
+        order_id = int(callback.data.split("_")[1])
+        
+        # Обновляем статус заказа (в реальном проекте нужно добавить поле статуса)
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ *Заказ принят в работу*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        await callback.answer("Заказ принят")
+    except Exception as e:
+        logging.error(f"Ошибка принятия заказа: {e}")
+        await callback.answer("Произошла ошибка")
+
+@dp.callback_query(F.data.startswith("reject_"))
+async def reject_order(callback: types.CallbackQuery):
+    """Обработка отклонения заказа"""
+    try:
+        order_id = int(callback.data.split("_")[1])
+        
+        # Обновляем статус заказа
+        await callback.message.edit_text(
+            callback.message.text + "\n\n❌ *Заказ отклонен*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        await callback.answer("Заказ отклонен")
+    except Exception as e:
+        logging.error(f"Ошибка отклонения заказа: {e}")
+        await callback.answer("Произошла ошибка")
+
 @dp.chat_join_request()
 async def handle_join_request(update: types.ChatJoinRequest):
     """Обработка вступления в канал"""
@@ -418,10 +592,10 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+```
     
     dp.startup.register(on_startup)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())
-```
