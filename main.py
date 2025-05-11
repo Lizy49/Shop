@@ -5,7 +5,7 @@ import sqlite3
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandObject
 from aiogram import F
@@ -16,6 +16,7 @@ import pytz
 # Настройки
 API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0'
 MANAGER_CHAT_ID = -1002378282152
+CHANNEL_USERNAME = '@olimpmagadan'  # Ваш канал
 DATABASE_FILE = 'database.db'
 MAGADAN_TIMEZONE = pytz.timezone('Asia/Magadan')
 
@@ -37,7 +38,8 @@ class Database:
                 username TEXT,
                 full_name TEXT,
                 invited_by INTEGER,
-                registered_at TEXT DEFAULT CURRENT_TIMESTAMP
+                registered_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                joined_channel BOOLEAN DEFAULT FALSE
             )
         ''')
         
@@ -73,8 +75,16 @@ class Database:
         except sqlite3.IntegrityError:
             pass
 
+    def mark_as_joined(self, user_id: int):
+        """Отметка что пользователь вступил в канал"""
+        self.cursor.execute('''
+            UPDATE users SET joined_channel = TRUE
+            WHERE user_id = ?
+        ''', (user_id,))
+        self.conn.commit()
+
     def activate_referral(self, referral_id: int):
-        """Активация реферала (после заказа)"""
+        """Активация реферала (после вступления в канал)"""
         self.cursor.execute('''
             UPDATE referrals SET activated = TRUE
             WHERE referral_id = ?
@@ -121,10 +131,10 @@ class Database:
     def get_user_info(self, user_id: int) -> Dict:
         """Получение информации о пользователе"""
         self.cursor.execute('''
-            SELECT username, full_name FROM users WHERE user_id = ?
+            SELECT username, full_name, joined_channel FROM users WHERE user_id = ?
         ''', (user_id,))
         row = self.cursor.fetchone()
-        return {'username': row[0], 'full_name': row[1]} if row else None
+        return {'username': row[0], 'full_name': row[1], 'joined_channel': row[2]} if row else None
 
 # Инициализация базы данных
 db = Database()
@@ -142,6 +152,14 @@ def get_main_keyboard():
             [KeyboardButton(text="💎 Моя скидка")]
         ],
         resize_keyboard=True
+    )
+
+def get_channel_keyboard():
+    """Кнопка для вступления в канал"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Вступить в канал", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")]
+        ]
     )
 
 def calculate_discount(referrals_count: int) -> int:
@@ -172,9 +190,17 @@ def get_magadan_time():
     """Получение текущего времени по Магаданскому часовому поясу"""
     return datetime.now(MAGADAN_TIMEZONE).strftime('%d.%m.%Y %H:%M')
 
-@dp.message(Command("start"))
+async def check_channel_subscription(user_id: int) -> bool:
+    """Проверка подписки на канал"""
+    try:
+        member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception:
+        return False
+
+@dp.message(Command("start", "restart"))
 async def cmd_start(message: types.Message, command: CommandObject = None):
-    """Обработчик команды /start"""
+    """Обработчик команд /start и /restart"""
     user_id = message.from_user.id
     username = message.from_user.username
     full_name = message.from_user.full_name
@@ -218,25 +244,55 @@ async def cmd_start(message: types.Message, command: CommandObject = None):
     else:
         db.add_user(user_id, username, full_name)
     
+    # Проверяем подписку на канал
+    is_subscribed = await check_channel_subscription(user_id)
+    if is_subscribed:
+        db.mark_as_joined(user_id)
+        # Активируем реферала если он пришел по ссылке
+        user_info = db.get_user_info(user_id)
+        if user_info and user_info.get('invited_by'):
+            db.activate_referral(user_id)
+    
     # Получение скидки
     ref_count = db.get_active_referrals_count(user_id)
     discount = calculate_discount(ref_count)
     
-    await message.answer(
-        f"🔥 *Добро пожаловать в OlimpShop49, {full_name}!*\n\n"
-        f"💎 *Твоя реферальная ссылка:* \n`https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`\n"
-        f"💰 *Текущая скидка:* {discount}% (приведено {ref_count} друзей)\n\n"
-        f"Приводи друзей - получай скидки до 50%!\n\n"
-        f"А также заказывайте у нас жижи, одноразки, подики, испарители\n"
-        f"Соревнуйтесь, ведь кто больше приведет, у того большая скидка. Удачи!",
-        reply_markup=get_main_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    if not is_subscribed:
+        await message.answer(
+            f"🔥 *Добро пожаловать в OlimpShop49, {full_name}!*\n\n"
+            f"📢 Для продолжения работы подпишись на наш канал {CHANNEL_USERNAME}\n\n"
+            f"💎 После подписки ты получишь:\n"
+            f"- Реферальную ссылку для приглашения друзей\n"
+            f"- Скидку до 50% за приглашенных друзей\n"
+            f"- Доступ к эксклюзивным предложениям",
+            reply_markup=get_channel_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await message.answer(
+            f"🔥 *Добро пожаловать в OlimpShop49, {full_name}!*\n\n"
+            f"💎 *Твоя реферальная ссылка:* \n`https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`\n"
+            f"💰 *Текущая скидка:* {discount}% (приведено {ref_count} друзей)\n\n"
+            f"Приводи друзей - получай скидки до 50%!\n\n"
+            f"А также заказывайте у нас жижи, одноразки, подики, испарители\n"
+            f"Соревнуйтесь, ведь кто больше приведет, у того большая скидка. Удачи!",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 @dp.message(F.text == "🏆 Топ рефералов")
 async def show_top_referrals(message: types.Message):
     """Показ топа рефералов"""
     try:
+        # Проверяем подписку на канал
+        is_subscribed = await check_channel_subscription(message.from_user.id)
+        if not is_subscribed:
+            await message.answer(
+                "📢 Для просмотра топа необходимо подписаться на наш канал!",
+                reply_markup=get_channel_keyboard()
+            )
+            return
+            
         top = db.get_top_referrals(10)  # Получаем топ-10
         if not top:
             await message.answer("🏆 Пока никто никого не привел. Ты можешь быть первым!")
@@ -262,7 +318,98 @@ async def show_top_referrals(message: types.Message):
             reply_markup=get_main_keyboard()
         )
 
-# Остальные обработчики остаются без изменений...
+@dp.message(F.text == "💎 Моя скидка")
+async def show_my_discount(message: types.Message):
+    """Показ текущей скидки пользователя"""
+    try:
+        # Проверяем подписку на канал
+        is_subscribed = await check_channel_subscription(message.from_user.id)
+        if not is_subscribed:
+            await message.answer(
+                "📢 Для просмотра скидки необходимо подписаться на наш канал!",
+                reply_markup=get_channel_keyboard()
+            )
+            return
+            
+        user_id = message.from_user.id
+        ref_count = db.get_active_referrals_count(user_id)
+        discount = calculate_discount(ref_count)
+        
+        await message.answer(
+            f"💎 *Ваша текущая скидка:* {discount}%\n"
+            f"👥 *Приглашено друзей:* {ref_count}\n\n"
+            f"🔗 *Ваша реферальная ссылка:*\n"
+            f"`https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`\n\n"
+            f"Приводите друзей и увеличивайте свою скидку!",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logging.error(f"Ошибка при показе скидки: {e}")
+        await message.answer(
+            "⚠️ Произошла ошибка при получении информации о скидке. Попробуйте позже.",
+            reply_markup=get_main_keyboard()
+        )
+
+@dp.chat_join_request()
+async def handle_join_request(update: types.ChatJoinRequest):
+    """Обработка вступления в канал"""
+    try:
+        user_id = update.from_user.id
+        db.mark_as_joined(user_id)
+        
+        # Активируем реферала если он пришел по ссылке
+        user_info = db.get_user_info(user_id)
+        if user_info and user_info.get('invited_by'):
+            db.activate_referral(user_id)
+            
+            # Уведомляем пригласившего
+            inviter_id = user_info['invited_by']
+            inviter_ref_count = db.get_active_referrals_count(inviter_id)
+            inviter_discount = calculate_discount(inviter_ref_count)
+            
+            try:
+                await bot.send_message(
+                    chat_id=inviter_id,
+                    text=f"🎉 *Ваш друг присоединился к каналу!*\n\n"
+                         f"👤 @{update.from_user.username or update.from_user.full_name}\n"
+                         f"💰 Ваша текущая скидка: {inviter_discount}%\n"
+                         f"👥 Всего приглашено: {inviter_ref_count}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
+        
+        # Принимаем запрос на вступление
+        await update.approve()
+    except Exception as e:
+        logging.error(f"Ошибка обработки вступления в канал: {e}")
+
+async def check_subscriptions():
+    """Периодическая проверка подписок"""
+    while True:
+        try:
+            # Получаем всех пользователей, которые якобы подписаны
+            db.cursor.execute('SELECT user_id FROM users WHERE joined_channel = TRUE')
+            users = db.cursor.fetchall()
+            
+            for (user_id,) in users:
+                try:
+                    is_subscribed = await check_channel_subscription(user_id)
+                    if not is_subscribed:
+                        db.cursor.execute('UPDATE users SET joined_channel = FALSE WHERE user_id = ?', (user_id,))
+                        db.conn.commit()
+                except Exception as e:
+                    logging.error(f"Ошибка проверки подписки для {user_id}: {e}")
+            
+            await asyncio.sleep(3600)  # Проверка каждый час
+        except Exception as e:
+            logging.error(f"Ошибка в check_subscriptions: {e}")
+            await asyncio.sleep(60)
+
+async def on_startup():
+    """Действия при запуске бота"""
+    asyncio.create_task(check_subscriptions())
 
 async def main():
     """Запуск бота"""
@@ -270,6 +417,8 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+    
+    dp.startup.register(on_startup)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
