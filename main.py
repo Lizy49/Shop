@@ -502,9 +502,7 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-
-
-    dp.startup.register(on_startup)
+    
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
