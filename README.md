@@ -25,6 +25,7 @@ import pytz
 API_TOKEN = '7592882454:AAGGwkE47GC0NHZ1cBiPqwQrI76gPQifzh0'
 MANAGER_CHAT_ID = -1002378282152
 CHANNEL_USERNAME = '@olimpmagadan'
+MANAGER_USERNAME = '@olimpshopmanager'
 DATABASE_FILE = 'database.db'
 MAGADAN_TIMEZONE = pytz.timezone('Asia/Magadan')
 
@@ -336,100 +337,31 @@ async def cmd_start(message: types.Message, command: CommandObject = None):
             parse_mode=ParseMode.MARKDOWN
         )
 
-@dp.message(F.text == "🏆 Топ рефералов")
-async def show_top_referrals(message: types.Message):
-    """Показ топа рефералов"""
-    try:
-        # Проверяем подписку на канал
-        is_subscribed = await check_channel_subscription(message.from_user.id)
-        if not is_subscribed:
-            await message.answer(
-                "📢 Для просмотра топа необходимо подписаться на наш канал!",
-                reply_markup=get_channel_keyboard()
-            )
-            return
-            
-        top = db.get_top_referrals(10)  # Получаем топ-10
-        if not top:
-            await message.answer("🏆 Пока никто никого не привел. Ты можешь быть первым!")
-            return
-        
-        top_text = "\n".join(
-            f"{i+1}. {user['display_name']} — {user['referrals_count']} чел. "
-            f"(скидка {calculate_discount(user['referrals_count'])}%)"
-            for i, user in enumerate(top)
-        )
-        
-        await message.answer(
-            f"🏆 *ТОП РЕФЕРАЛОВ* 🏆\n\n"
-            f"{top_text}\n\n"
-            f"*Приводи друзей и поднимайся в топе!*",
-            reply_markup=get_main_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logging.error(f"Ошибка при показе топа рефералов: {e}")
-        await message.answer(
-            "⚠️ Произошла ошибка при получении топа рефералов. Попробуйте позже.",
-            reply_markup=get_main_keyboard()
-        )
-
-@dp.message(F.text == "💎 Моя скидка")
-async def show_my_discount(message: types.Message):
-    """Показ текущей скидки пользователя"""
-    try:
-        # Проверяем подписку на канал
-        is_subscribed = await check_channel_subscription(message.from_user.id)
-        if not is_subscribed:
-            await message.answer(
-                "📢 Для просмотра скидки необходимо подписаться на наш канал!",
-                reply_markup=get_channel_keyboard()
-            )
-            return
-            
-        user_id = message.from_user.id
-        ref_count = db.get_active_referrals_count(user_id)
-        discount = calculate_discount(ref_count)
-        
-        await message.answer(
-            f"💎 *Ваша текущая скидка:* {discount}%\n"
-            f"👥 *Приглашено друзей:* {ref_count}\n\n"
-            f"🔗 *Ваша реферальная ссылка:*\n"
-            f"`https://t.me/{(await bot.get_me()).username}?start=ref={user_id}`\n\n"
-            f"Приводите друзей и увеличивайте свою скидку!",
-            reply_markup=get_main_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception as e:
-        logging.error(f"Ошибка при показе скидки: {e}")
-        await message.answer(
-            "⚠️ Произошла ошибка при получении информации о скидке. Попробуйте позже.",
-            reply_markup=get_main_keyboard()
-        )
-
 @dp.message(F.text == "📞 Контакты")
 async def show_contacts(message: types.Message):
     """Показ контактов"""
     await message.answer(
-        "📞 *Контакты OlimpShop49*\n\n"
-        "📍 Магадан, ул. Ленина, 49\n"
-        "☎️ Телефон: +7 (914) 123-45-67\n"
-        "🕒 Режим работы: 10:00 - 22:00 без выходных\n\n"
-        "По всем вопросам пишите в личные сообщения",
+        "📞 <b>КОНТАКТЫ OlimpShop49</b> 📞\n\n"
+        "🔹 Телеграм: @olimpmagadan\n"
+        "🔹 Менеджер: @olimpshopmanager\n"
+        "🔹 Разработчик: киньте сколько вы оцениваете мое старание(Т-Банк:2200701015005249)\n\n"
+        "⚡ <i>Зевс всегда на связи!</i> ⚡\n"
+        "Пиши - не стесняйся, отвечаем быстрее молнии!",
         reply_markup=get_main_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 @dp.message(F.text == "🕒 Режим работы")
 async def show_schedule(message: types.Message):
     """Показ режима работы"""
     await message.answer(
-        "🕒 *Режим работы OlimpShop49*\n\n"
-        "Понедельник - Пятница: 10:00 - 22:00\n"
-        "Суббота - Воскресенье: 11:00 - 20:00\n\n"
-        "Без перерывов и выходных!",
+        "⏰ <b>РЕЖИМ РАБОТЫ</b> ⏰\n\n"
+        "▫️ Обычные дни: 10:00 - 23:00 (когда Зевс не пьёт амброзию)\n"
+        "▫️ Праздничные дни: 12:00 - 22:00 (ночные молнии - наше всё)\n\n"
+        "⚡ <i>Доставляем без выходных!</i> ⚡\n"
+        "Даже если сам Геракл сказал, что сегодня выходной!",
         reply_markup=get_main_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 @dp.message(F.web_app_data)
@@ -439,56 +371,95 @@ async def handle_web_app_data(message: types.Message):
         user_id = message.from_user.id
         data = json.loads(message.web_app_data.data)
         
-        # Добавляем заказ в базу
-        order_id = db.add_order(user_id, json.dumps(data, ensure_ascii=False))
-        
-        # Получаем информацию о пользователе
+        # Получаем информацию о пользователе и его скидке
         user_info = db.get_user_info(user_id)
         discount = user_info['discount'] if user_info else 0
         
+        # Добавляем заказ в базу
+        order_id = db.add_order(user_id, json.dumps(data, ensure_ascii=False))
+        
+        # Рассчитываем итоговую сумму со скидкой
+        total = float(data.get('total', 0))
+        discounted_total = total * (100 - discount) / 100
+        
         # Формируем сообщение для менеджера
-        order_text = (
-            f"🆕 *Новый заказ #`{order_id}`*\n\n"
-            f"👤 *Клиент:* @{message.from_user.username or message.from_user.full_name} (ID: `{user_id}`)\n"
-            f"💎 *Скидка:* {discount}%\n"
-            f"📅 *Дата:* {get_magadan_time()} (МСК+8)\n\n"
-            f"📦 *Состав заказа:*\n"
+        manager_message = (
+            f"⚡ <b>НОВЫЙ ЗАКАЗ! Готовь молнии!</b> ⚡\n\n"
         )
         
-        # Добавляем товары из заказа
+        # Добавляем товары
         for item in data.get('items', []):
-            order_text += f"- {item.get('name', 'Неизвестный товар')} x{item.get('quantity', 1)} - {item.get('price', 0)}₽\n"
+            manager_message += (
+                f"▫ {item.get('name', 'Неизвестный товар')} | "
+                f"Вкус: {item.get('flavor', 'Не указан')} | "
+                f"Кол-во: {item.get('quantity', 1)} | "
+                f"Сумма: {item.get('price', 0)}₽\n"
+            )
         
-        order_text += f"\n💵 *Итого:* {data.get('total', 0)}₽"
+        # Добавляем информацию о доставке и оплате
+        manager_message += (
+            f"\n📍 <b>Район:</b> {data.get('district', 'Не указан')} ({data.get('delivery_price', 0)}₽)\n"
+            f"🏠 <b>Адрес:</b> {data.get('address', 'Не указан')}\n"
+            f"💰 <b>Сумма:</b> {total}₽\n"
+        )
+        
         if discount > 0:
-            discounted_total = data.get('total', 0) * (100 - discount) / 100
-            order_text += f" (со скидкой {discount}%: {discounted_total:.2f}₽)"
+            manager_message += f"💎 <b>Скидка {discount}%:</b> {discounted_total:.2f}₽\n"
         
-        order_text += f"\n\n📍 *Адрес доставки:* {data.get('address', 'Не указан')}"
-        order_text += f"\n📞 *Телефон:* {data.get('phone', 'Не указан')}"
-        order_text += f"\n💬 *Комментарий:* {data.get('comment', 'Нет комментария')}"
+        manager_message += (
+            f"👤 <b>От:</b> @{message.from_user.username or message.from_user.full_name}\n\n"
+            f"<i>Быстрее ветра, курьер! Клиент ждёт!</i>"
+        )
         
         # Отправляем менеджеру
         await bot.send_message(
             chat_id=MANAGER_CHAT_ID,
-            text=order_text,
-            parse_mode=ParseMode.MARKDOWN,
+            text=manager_message,
+            parse_mode=ParseMode.HTML,
             reply_markup=get_order_keyboard(order_id)
         )
         
-        # Подтверждение пользователю
+        # Формируем сообщение для пользователя
+        user_message = (
+            f"⚡ <b>Ваш заказ #{order_id} принят!</b> ⚡\n\n"
+            f"<b>Состав заказа:</b>\n"
+        )
+        
+        for item in data.get('items', []):
+            user_message += (
+                f"▫ {item.get('name', 'Неизвестный товар')} | "
+                f"{item.get('quantity', 1)}шт. | "
+                f"{item.get('price', 0)}₽\n"
+            )
+        
+        user_message += (
+            f"\n<b>Доставка:</b> {data.get('district', 'Не указан')} ({data.get('delivery_price', 0)}₽)\n"
+            f"<b>Адрес:</b> {data.get('address', 'Не указан')}\n"
+            f"<b>Итого:</b> {total}₽\n"
+        )
+        
+        if discount > 0:
+            user_message += (
+                f"<b>Ваша скидка:</b> {discount}%\n"
+                f"<b>К оплате:</b> {discounted_total:.2f}₽\n"
+            )
+        
+        user_message += (
+            f"\nМенеджер @olimpshopmanager свяжется с вами для подтверждения.\n"
+            f"Спасибо за заказ в OlimpShop49! ⚡"
+        )
+        
+        # Отправляем пользователю
         await message.answer(
-            "✅ *Ваш заказ принят!*\n\n"
-            "Спасибо за покупку в OlimpShop49!\n"
-            "Менеджер свяжется с вами в ближайшее время для подтверждения заказа.",
+            user_message,
             reply_markup=get_main_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
         
     except Exception as e:
         logging.error(f"Ошибка обработки заказа: {e}")
         await message.answer(
-            "⚠️ Произошла ошибка при обработке вашего заказа. Пожалуйста, попробуйте позже.",
+            "⚠ Произошла ошибка при обработке вашего заказа. Пожалуйста, попробуйте позже.",
             reply_markup=get_main_keyboard()
         )
 
@@ -498,10 +469,10 @@ async def accept_order(callback: types.CallbackQuery):
     try:
         order_id = int(callback.data.split("_")[1])
         
-        # Обновляем статус заказа (в реальном проекте нужно добавить поле статуса)
+        # Обновляем сообщение у менеджера
         await callback.message.edit_text(
-            callback.message.text + "\n\n✅ *Заказ принят в работу*",
-            parse_mode=ParseMode.MARKDOWN
+            callback.message.text + "\n\n✅ <b>Заказ принят в работу!</b>",
+            parse_mode=ParseMode.HTML
         )
         
         await callback.answer("Заказ принят")
@@ -515,10 +486,10 @@ async def reject_order(callback: types.CallbackQuery):
     try:
         order_id = int(callback.data.split("_")[1])
         
-        # Обновляем статус заказа
+        # Обновляем сообщение у менеджера
         await callback.message.edit_text(
-            callback.message.text + "\n\n❌ *Заказ отклонен*",
-            parse_mode=ParseMode.MARKDOWN
+            callback.message.text + "\n\n❌ <b>Заказ отклонен!</b>",
+            parse_mode=ParseMode.HTML
         )
         
         await callback.answer("Заказ отклонен")
@@ -526,75 +497,15 @@ async def reject_order(callback: types.CallbackQuery):
         logging.error(f"Ошибка отклонения заказа: {e}")
         await callback.answer("Произошла ошибка")
 
-@dp.chat_join_request()
-async def handle_join_request(update: types.ChatJoinRequest):
-    """Обработка вступления в канал"""
-    try:
-        user_id = update.from_user.id
-        db.mark_as_joined(user_id)
-        
-        # Активируем реферала если он пришел по ссылке
-        user_info = db.get_user_info(user_id)
-        if user_info and user_info.get('invited_by'):
-            db.activate_referral(user_id)
-            
-            # Уведомляем пригласившего
-            inviter_id = user_info['invited_by']
-            inviter_ref_count = db.get_active_referrals_count(inviter_id)
-            inviter_discount = calculate_discount(inviter_ref_count)
-            
-            try:
-                await bot.send_message(
-                    chat_id=inviter_id,
-                    text=f"🎉 *Ваш друг присоединился к каналу!*\n\n"
-                         f"👤 @{update.from_user.username or update.from_user.full_name}\n"
-                         f"💰 Ваша текущая скидка: {inviter_discount}%\n"
-                         f"👥 Всего приглашено: {inviter_ref_count}",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception:
-                pass
-        
-        # Принимаем запрос на вступление
-        await update.approve()
-    except Exception as e:
-        logging.error(f"Ошибка обработки вступления в канал: {e}")
-
-async def check_subscriptions():
-    """Периодическая проверка подписок"""
-    while True:
-        try:
-            # Получаем всех пользователей, которые якобы подписаны
-            db.cursor.execute('SELECT user_id FROM users WHERE joined_channel = TRUE')
-            users = db.cursor.fetchall()
-            
-            for (user_id,) in users:
-                try:
-                    is_subscribed = await check_channel_subscription(user_id)
-                    if not is_subscribed:
-                        db.cursor.execute('UPDATE users SET joined_channel = FALSE WHERE user_id = ?', (user_id,))
-                        db.conn.commit()
-                except Exception as e:
-                    logging.error(f"Ошибка проверки подписки для {user_id}: {e}")
-            
-            await asyncio.sleep(3600)  # Проверка каждый час
-        except Exception as e:
-            logging.error(f"Ошибка в check_subscriptions: {e}")
-            await asyncio.sleep(60)
-
-async def on_startup():
-    """Действия при запуске бота"""
-    asyncio.create_task(check_subscriptions())
-
 async def main():
     """Запуск бота"""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-
-    dp.startup.register(on_startup)
+    
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())
+```
